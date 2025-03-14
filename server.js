@@ -7,6 +7,11 @@ import nodemailer from "nodemailer";
 import crypto from "crypto";
 import dotenv from 'dotenv';
 import { User } from './models/User.js';
+import { PaperSubmission } from './models/Paper.js';  // Note the correct path and import
+import multer from 'multer';
+import path from 'path';
+import fs from 'fs';
+import { UserSubmission } from './models/UserSubmission.js';
 
 dotenv.config();
 
@@ -14,19 +19,23 @@ const app = express();
 const PORT = process.env.PORT || 5000;
 const secret = process.env.JWT_SECRET;
 
+// Updated CORS configuration to allow the frontend domain
 const allowedOrigins = [
   'http://localhost:5173',
-  'http://localhost:3000'
+  'http://localhost:3000',
+  'http://localhost:5000',
+  'https://srm-corrections-hy91.vercel.app',
+  'https://societycis.org'
 ];
 
 app.use(cors({
   origin: function(origin, callback) {
-    if (!origin) return callback(null, true);
-    if (allowedOrigins.indexOf(origin) === -1) {
-      const msg = 'The CORS policy for this site does not allow access from the specified Origin.';
-      return callback(new Error(msg), false);
+    if (!origin || allowedOrigins.indexOf(origin) !== -1) {
+      return callback(null, true);
     }
-    return callback(null, true);
+    console.log("Blocked CORS request from:", origin);
+    const msg = 'The CORS policy for this site does not allow access from the specified Origin.';
+    return callback(new Error(msg), false);
   },
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
   allowedHeaders: ['Content-Type', 'Authorization'],
@@ -58,44 +67,48 @@ const transporter = nodemailer.createTransport({
     }
 });
 
-// Update the verification email function to use base64-encoded JSON data
+// Update the sendVerificationEmail function to use the frontend URL from environment or the deployed URL
 const sendVerificationEmail = async (email, token) => {
     console.log(`Sending verification email to ${email} with token: ${token}`);
     
-    // Create a JSON object with the token and email
+    // Create verification data
     const verificationData = {
         token: token,
         email: email,
         timestamp: Date.now()
     };
     
-    // Encode the data as base64 to make it more compact
+    // Encode the data as base64
     const encodedData = Buffer.from(JSON.stringify(verificationData)).toString('base64');
     
-    // Create verification URL with encoded data
-    const verificationUrl = `${process.env.FRONTEND_URL || 'http://localhost:5173'}/verify?data=${encodedData}`;
-    console.log("Verification URL created");
+    // Use frontend URL from environment or default to the deployed URL
+    const frontendUrl = process.env.FRONTEND_URL || 'https://srm-corrections-hy91.vercel.app';
+    const verificationUrl = `${frontendUrl}/verify?data=${encodedData}`;
+    console.log("Verification URL created:", verificationUrl);
     
     const mailOptions = {
         from: process.env.EMAIL_USER,
         to: email,
-        subject: "Please Verify Your Email Address",
+        subject: "Verify Your Email - ICMBNT 2025",
         html: `
             <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px; border: 1px solid #e0e0e0; border-radius: 5px;">
-                <h2 style="color: #F5A051; text-align: center;">Thank you for registering!</h2>
-                <p>Please verify your email address by clicking on the button below:</p>
+                <h2 style="color: #F5A051; text-align: center;">Welcome to ICMBNT 2025!</h2>
+                <p>Please verify your email address by clicking the button below:</p>
                 <div style="text-align: center; margin: 25px 0;">
                     <a href="${verificationUrl}" 
                        style="background-color: #F5A051; color: white; padding: 12px 24px; text-decoration: none; border-radius: 4px; display: inline-block; font-weight: bold;">
                        Verify Email Address
                     </a>
                 </div>
-                <p style="font-size: 0.8em; color: #666; text-align: center;">
-                    This verification link will expire in 48 hours. If you did not create an account, please ignore this email.
+                <p style="color: #666; text-align: center;">
+                    This verification link will expire in 24 hours.
                 </p>
                 <p>
                     If the button doesn't work, copy and paste this URL into your browser:<br>
                     <a href="${verificationUrl}">${verificationUrl}</a>
+                </p>
+                <p style="font-size: 0.8em; color: #666; text-align: center;">
+                    If you didn't create an account, please ignore this email.
                 </p>
             </div>
         `
@@ -522,7 +535,471 @@ app.get('/debug/tokens', async (req, res) => {
         });
     }
 });
+const storage = multer.diskStorage({
+    destination: function (req, file, cb) {
+      cb(null, 'uploads/');
+    },
+    filename: function (req, file, cb) {
+      const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1E9);
+      cb(null, file.fieldname + '-' + uniqueSuffix + path.extname(file.originalname));
+    }
+  });
+  
+  const upload = multer({ 
+    storage: storage,
+    limits: {
+      fileSize: 3 * 1024 * 1024 // 3MB limit
+    },
+    fileFilter: (req, file, cb) => {
+      const allowedTypes = /doc|docx|pdf/;
+      const extname = allowedTypes.test(path.extname(file.originalname).toLowerCase());
+      if (extname) {
+        return cb(null, true);
+      }
+      cb(new Error('Only .doc, .docx, and .pdf files are allowed'));
+    }
+  });
+  
+  // Helper function to generate submission ID
+  const generateSubmissionId = async (category) => {
+    const prefix = category.split(' ')[0].substring(0, 2).toUpperCase();
+    const count = await PaperSubmission.countDocuments({ category: category });
+    return `${prefix}${(count + 1).toString().padStart(3, '0')}`;
+  };
+  
+  // Email sending function to be used by the paper submission route
+const sendPaperSubmissionEmails = async (submissionData) => {
+  // Create email options for author
+  const authorMailOptions = {
+    from: process.env.EMAIL_USER,
+    to: submissionData.email,
+    subject: `Paper Submission Confirmation - ${submissionData.submissionId}`,
+    html: `
+      <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px;">
+        <h2 style="color: #F5A051;">Paper Submission Confirmation</h2>
+        <p>Dear ${submissionData.authorName},</p>
+        <p>Your paper has been successfully submitted to ICMBNT 2025.</p>
+        <div style="background-color: #f5f5f5; padding: 15px; margin: 20px 0;">
+          <p><strong>Submission ID:</strong> ${submissionData.submissionId}</p>
+          <p><strong>Paper Title:</strong> ${submissionData.paperTitle}</p>
+          <p><strong>Category:</strong> ${submissionData.category}</p>
+          <p><strong>Status:</strong> Under Review</p>
+        </div>
+        <p>We will review your submission and notify you of any updates through this email address.</p>
+        <p>Best regards,<br>ICMBNT 2025 Committee</p>
+      </div>
+    `
+  };
 
-app.listen(PORT, () => {
+  // Email to admin with submission details
+  const adminMailOptions = {
+    from: process.env.EMAIL_USER,
+    to: process.env.ADMIN_EMAIL || process.env.EMAIL_USER,
+    subject: `New Paper Submission - ${submissionData.submissionId}`,
+    html: `
+      <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px;">
+        <h2 style="color: #F5A051;">New Paper Submission Received</h2>
+        <div style="background-color: #f5f5f5; padding: 15px; margin: 20px 0;">
+          <p><strong>Submission ID:</strong> ${submissionData.submissionId}</p>
+          <p><strong>Author:</strong> ${submissionData.authorName}</p>
+          <p><strong>Email:</strong> ${submissionData.email}</p>
+          <p><strong>Paper Title:</strong> ${submissionData.paperTitle}</p>
+          <p><strong>Category:</strong> ${submissionData.category}</p>
+          ${submissionData.topic ? `<p><strong>Topic:</strong> ${submissionData.topic}</p>` : ''}
+          <p><strong>Status:</strong> Under Review</p>
+        </div>
+      </div>
+    `
+  };
+
+  // Add attachment if file was uploaded
+  if (submissionData.filePath && fs.existsSync(submissionData.filePath)) {
+    console.log(`Attaching file: ${submissionData.filePath}`);
+    // Add attachment to both emails
+    adminMailOptions.attachments = [{
+      filename: submissionData.fileName,
+      path: submissionData.filePath
+    }];
+    // Also attach to author confirmation if needed
+    authorMailOptions.attachments = [{
+      filename: submissionData.fileName,
+      path: submissionData.filePath
+    }];
+  } else {
+    console.log('No file to attach or file does not exist');
+  }
+
+  // Send both emails and handle any errors
+  try {
+    const [authorEmail, adminEmail] = await Promise.all([
+      transporter.sendMail(authorMailOptions),
+      transporter.sendMail(adminMailOptions)
+    ]);
+    return { authorEmail, adminEmail };
+  } catch (error) {
+    console.error('Error sending emails:', error);
+    throw error;
+  }
+};
+
+// Update the paper submission route with file attachment handling
+app.post('/submit-paper', upload.single('abstract'), async (req, res) => {
+  console.log('Received paper submission request:', req.body);
+  console.log('File:', req.file);
+  
+  try {
+    const { email } = req.body;
+
+    // Check if user has already submitted a paper
+    const existingSubmission = await UserSubmission.findOne({ email });
+    if (existingSubmission) {
+      return res.status(400).json({
+        success: false,
+        message: "You have already submitted a paper. Please use the edit option in your dashboard if you need to make changes.",
+        existingSubmission: {
+          submissionId: existingSubmission.submissionId,
+          bookingId: existingSubmission.bookingId
+        }
+      });
+    }
+
+    // Validate required fields based on schema
+    const requiredFields = ['paperTitle', 'authorName', 'email', 'category'];
+    const missingFields = requiredFields.filter(field => !req.body[field]);
+    
+    if (missingFields.length > 0) {
+      return res.status(400).json({
+        success: false,
+        message: `Missing required fields: ${missingFields.join(', ')}`
+      });
+    }
+
+    // Create uploads directory if it doesn't exist
+    if (!fs.existsSync('uploads')) {
+      fs.mkdirSync('uploads', { recursive: true });
+    }
+
+    // Generate submission ID and booking ID
+    const submissionId = await generateSubmissionId(req.body.category);
+    const bookingId = generateBookingId();
+    
+    console.log('Generated IDs:', { submissionId, bookingId });
+
+    // Get file details for the database and email
+    let abstractFileUrl = null;
+    let filePath = null;
+    let fileName = null;
+    
+    if (req.file) {
+      abstractFileUrl = `/uploads/${req.file.filename}`;
+      filePath = req.file.path; // Full path to the file
+      fileName = req.file.originalname; // Original file name
+      console.log(`File saved at: ${filePath}, original name: ${fileName}`);
+    }
+
+    // Create new submission object matching the schema
+    const newSubmission = new PaperSubmission({
+      submissionId,
+      paperTitle: req.body.paperTitle,
+      authorName: req.body.authorName,
+      email: req.body.email,
+      category: req.body.category,
+      topic: req.body.topic || '', // Optional field
+      abstractFileUrl: abstractFileUrl,
+      status: 'Under Review' // Default status from schema
+    });
+
+    // Create user submission tracking record
+    const userSubmission = new UserSubmission({
+      email: req.body.email,
+      submissionId,
+      bookingId
+    });
+
+    // Validate submission against schema
+    const validationError = newSubmission.validateSync();
+    if (validationError) {
+      return res.status(400).json({
+        success: false,
+        message: "Validation error",
+        errors: validationError.errors
+      });
+    }
+
+    console.log('Saving submission:', newSubmission);
+    await Promise.all([
+      newSubmission.save(),
+      userSubmission.save()
+    ]);
+    console.log('Submission saved successfully with booking ID:', bookingId);
+
+    // Send confirmation emails with proper error handling and file attachment
+    try {
+      console.log('Sending confirmation emails with attachment...');
+      await sendPaperSubmissionEmails({
+        submissionId,
+        bookingId,
+        paperTitle: req.body.paperTitle,
+        authorName: req.body.authorName,
+        email: req.body.email,
+        category: req.body.category,
+        topic: req.body.topic || '',
+        salutation: req.body.salutation || 'Author',
+        abstractFileUrl: abstractFileUrl,
+        filePath: filePath, // Pass the actual file path
+        fileName: fileName  // Pass the original file name
+      });
+      console.log('Confirmation emails sent successfully');
+
+      // Return success response
+      res.status(201).json({
+        success: true,
+        message: "Paper submitted successfully and confirmation emails sent",
+        submissionId,
+        bookingId,
+        paperDetails: {
+          title: req.body.paperTitle,
+          category: req.body.category,
+          status: 'Under Review'
+        }
+      });
+    } catch (emailError) {
+      // Log email error but don't fail the submission
+      console.error('Error sending confirmation emails:', emailError);
+      res.status(201).json({
+        success: true,
+        message: "Paper submitted successfully but there was an issue sending confirmation emails",
+        submissionId,
+        bookingId,
+        paperDetails: {
+          title: req.body.paperTitle,
+          category: req.body.category,
+          status: 'Under Review'
+        }
+      });
+    }
+  } catch (error) {
+    console.error('Error submitting paper:', error);
+    res.status(500).json({
+      success: false,
+      message: "Error processing paper submission",
+      error: error.message
+    });
+  }
+});
+  
+  // Get submission status route
+  app.get('/paper-status/:submissionId', async (req, res) => {
+    try {
+      const submission = await PaperSubmission.findOne({
+        submissionId: req.params.submissionId
+      });
+      
+      if (!submission) {
+        return res.status(404).json({
+          success: false,
+          message: "Submission not found"
+        });
+      }
+      
+      res.json({
+        success: true,
+        submission
+      });
+    } catch (error) {
+      res.status(500).json({
+        success: false,
+        message: "Error retrieving submission status",
+        error: error.message
+      });
+    }
+  });
+
+// Add this route to test email functionality
+app.get('/test-email', async (req, res) => {
+  try {
+    const testMailOptions = {
+      from: process.env.EMAIL_USER,
+      to: process.env.EMAIL_USER,
+      subject: 'Test Email',
+      text: 'This is a test email to verify the configuration is working.'
+    };
+
+    console.log('Sending test email...');
+    const info = await transporter.sendMail(testMailOptions);
+    console.log('Test email sent:', info);
+
+    res.json({
+      success: true,
+      message: 'Test email sent successfully',
+      messageId: info.messageId
+    });
+  } catch (error) {
+    console.error('Test email error:', error);
+    res.status(500).json({
+      success: false,
+      error: error.message
+    });
+  }
+});
+
+app.get('/user-submission', verifyJWT, async (req, res) => {
+  try {
+    const { email } = req.user;
+    
+    const userSubmission = await UserSubmission.findOne({ email });
+    if (!userSubmission) {
+      return res.status(200).json({
+        success: true,
+        hasSubmission: false
+      });
+    }
+    
+    const paperSubmission = await PaperSubmission.findOne({ 
+      submissionId: userSubmission.submissionId 
+    });
+    
+    return res.status(200).json({
+      success: true,
+      hasSubmission: true,
+      submission: {
+        ...paperSubmission.toObject(),
+        bookingId: userSubmission.bookingId,
+        submissionDate: userSubmission.submissionDate
+      }
+    });
+  } catch (error) {
+    console.error("Error fetching user submission:", error);
+    return res.status(500).json({
+      success: false,
+      message: "Error fetching submission details",
+      error: error.message
+    });
+  }
+});
+
+app.put('/edit-submission/:submissionId', verifyJWT, upload.single('abstract'), async (req, res) => {
+  try {
+    const { submissionId } = req.params;
+    const { email } = req.user;
+    
+    // Verify the submission belongs to the user
+    const userSubmission = await UserSubmission.findOne({ 
+      email,
+      submissionId 
+    });
+    
+    if (!userSubmission) {
+      return res.status(403).json({
+        success: false,
+        message: "You do not have permission to edit this submission"
+      });
+    }
+    
+    // Get the existing submission
+    const paperSubmission = await PaperSubmission.findOne({ submissionId });
+    if (!paperSubmission) {
+      return res.status(404).json({
+        success: false,
+        message: "Submission not found"
+      });
+    }
+    
+    // Update the fields
+    if (req.body.paperTitle) paperSubmission.paperTitle = req.body.paperTitle;
+    if (req.body.category) paperSubmission.category = req.body.category;
+    if (req.body.topic) paperSubmission.topic = req.body.topic;
+    if (req.body.authorName) paperSubmission.authorName = req.body.authorName;
+    
+    // Handle file upload if new file provided
+    if (req.file) {
+      // If there's an existing file, you might want to delete it
+      // Delete old file code would go here
+      
+      paperSubmission.abstractFileUrl = `/uploads/${req.file.filename}`;
+      
+      // Get file details for the email
+      filePath = req.file.path;
+      fileName = req.file.originalname;
+    }
+    
+    // Save the updated submission
+    await paperSubmission.save();
+    
+    // Send confirmation email for the update
+    try {
+      await sendUpdateConfirmationEmail({
+        submissionId,
+        bookingId: userSubmission.bookingId,
+        paperTitle: paperSubmission.paperTitle,
+        authorName: paperSubmission.authorName,
+        email,
+        category: paperSubmission.category,
+        filePath: req.file ? req.file.path : null,
+        fileName: req.file ? req.file.originalname : null
+      });
+    } catch (emailError) {
+      console.error("Failed to send update confirmation:", emailError);
+    }
+    
+    return res.status(200).json({
+      success: true,
+      message: "Submission updated successfully",
+      submission: paperSubmission
+    });
+  } catch (error) {
+    console.error("Error updating submission:", error);
+    return res.status(500).json({
+      success: false,
+      message: "Error updating submission",
+      error: error.message
+    });
+  }
+});
+
+const sendUpdateConfirmationEmail = async (submissionData) => {
+  const mailOptions = {
+    from: process.env.EMAIL_USER,
+    to: submissionData.email,
+    subject: `Paper Submission Update - ${submissionData.submissionId}`,
+    html: `
+      <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px;">
+        <h2 style="color: #F5A051;">Paper Submission Update</h2>
+        <p>Dear ${submissionData.authorName},</p>
+        <p>Your paper submission has been successfully updated.</p>
+        <div style="background-color: #f5f5f5; padding: 15px; margin: 20px 0;">
+          <p><strong>Submission ID:</strong> ${submissionData.submissionId}</p>
+          <p><strong>Booking ID:</strong> ${submissionData.bookingId}</p>
+          <p><strong>Paper Title:</strong> ${submissionData.paperTitle}</p>
+          <p><strong>Category:</strong> ${submissionData.category}</p>
+          <p><strong>Status:</strong> Under Review</p>
+        </div>
+        <p>Best regards,<br>ICMBNT 2025 Committee</p>
+      </div>
+    `
+  };
+  
+  // Add attachment if file was uploaded
+  if (submissionData.filePath && fs.existsSync(submissionData.filePath)) {
+    mailOptions.attachments = [{
+      filename: submissionData.fileName,
+      path: submissionData.filePath
+    }];
+  }
+  
+  return transporter.sendMail(mailOptions);
+};
+
+// Add this function in the server.js file if missing
+
+// Generate booking ID
+const generateBookingId = () => {
+  const timestamp = Date.now().toString().substring(6);
+  const randomNum = Math.floor(Math.random() * 10000).toString().padStart(4, '0');
+  return `BK${timestamp}${randomNum}`;
+};
+
+app.listen(PORT, '0.0.0.0', () => {
     console.log(`Server is running on http://localhost:${PORT}`);
+    console.log('Allowed origins for CORS:', allowedOrigins);
 });
