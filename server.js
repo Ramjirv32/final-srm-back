@@ -7,7 +7,7 @@ import nodemailer from "nodemailer";
 import crypto from "crypto";
 import dotenv from 'dotenv';
 import { User } from './models/User.js';
-import PaperSubmission from './models/Paper.js';  // Note the correct path and import
+import { PaperSubmission } from './models/Paper.js';  // Note the correct path and import
 import multer from 'multer';
 import path from 'path';
 import fs from 'fs';
@@ -19,15 +19,32 @@ const app = express();
 const PORT = process.env.PORT || 5000;
 const secret = process.env.JWT_SECRET;
 
+// Updated CORS configuration to allow the frontend domain
+const allowedOrigins = [
+  'http://localhost:5173',
+  'http://localhost:3000',
+  'http://localhost:5000',
+  'https://srm-corrections-hy91.vercel.app',
+  'https://societycis.org'
+];
 
-
-app.use(cors('*'));
-
-
+app.use(cors({
+  origin: function(origin, callback) {
+    if (!origin || allowedOrigins.indexOf(origin) !== -1) {
+      return callback(null, true);
+    }
+    console.log("Blocked CORS request from:", origin);
+    const msg = 'The CORS policy for this site does not allow access from the specified Origin.';
+    return callback(new Error(msg), false);
+  },
+  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'Authorization'],
+  credentials: true
+}));
 
 app.use(express.json());
 
-
+app.options('*', cors());
 
 mongoose.connect(process.env.MONGODB_URI)
     .then(() => {
