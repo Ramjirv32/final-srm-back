@@ -186,7 +186,7 @@ app.post("/login", async (req, res) => {
             success: false, 
             message: "An error occurred during login",
             error: error.message 
-        });/
+        });
     }
 });
 
