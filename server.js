@@ -19,7 +19,7 @@ const app = express();
 const PORT = process.env.PORT || 5000;
 const secret = process.env.JWT_SECRET;
 
-// Updated CORS configuration to allow the frontend domain
+
 const allowedOrigins = [
   'http://localhost:5173',
   'http://localhost:3000',
