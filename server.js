@@ -21,8 +21,8 @@ const secret = process.env.JWT_SECRET;
 
 
 
-app.use(cors());
-// Updated CORS configuration to allow the frontend domain
+app.use(cors('*'));
+
 
 
 app.use(express.json());
