@@ -667,11 +667,6 @@ app.post('/submit-paper', upload.single('abstract'), async (req, res) => {
       });
     }
 
-    // Create uploads directory if it doesn't exist
-    if (!fs.existsSync('uploads')) {
-      fs.mkdirSync('uploads', { recursive: true });
-    }
-
     // Generate submission ID and booking ID
     const submissionId = await generateSubmissionId(req.body.category);
     const bookingId = generateBookingId();
@@ -728,20 +723,67 @@ app.post('/submit-paper', upload.single('abstract'), async (req, res) => {
 
     // Send confirmation emails with proper error handling and file attachment
     try {
-      console.log('Sending confirmation emails with attachment...');
-      await sendPaperSubmissionEmails({
-        submissionId,
-        bookingId,
-        paperTitle: req.body.paperTitle,
-        authorName: req.body.authorName,
-        email: req.body.email,
-        category: req.body.category,
-        topic: req.body.topic || '',
-        salutation: req.body.salutation || 'Author',
-        abstractFileUrl: abstractFileUrl,
-        filePath: filePath, // Pass the actual file path
-        fileName: fileName  // Pass the original file name
-      });
+      // Create email options for author
+      const authorMailOptions = {
+        from: process.env.EMAIL_USER,
+        to: req.body.email,
+        subject: `Paper Submission Confirmation - ${submissionId}`,
+        html: `
+          <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px;">
+            <h2 style="color: #F5A051;">Paper Submission Confirmation</h2>
+            <p>Dear ${req.body.authorName},</p>
+            <p>Your paper has been successfully submitted to ICMBNT 2025.</p>
+            <div style="background-color: #f5f5f5; padding: 15px; margin: 20px 0;">
+              <p><strong>Submission ID:</strong> ${submissionId}</p>
+              <p><strong>Paper Title:</strong> ${req.body.paperTitle}</p>
+              <p><strong>Category:</strong> ${req.body.category}</p>
+              <p><strong>Status:</strong> Under Review</p>
+            </div>
+            <p>We will review your submission and notify you of any updates through this email address.</p>
+            <p>Best regards,<br>ICMBNT 2025 Committee</p>
+          </div>
+        `
+      };
+
+      // Email to admin with submission details
+      const adminMailOptions = {
+        from: process.env.EMAIL_USER,
+        to: process.env.ADMIN_EMAIL || process.env.EMAIL_USER,
+        subject: `New Paper Submission - ${submissionId}`,
+        html: `
+          <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px;">
+            <h2 style="color: #F5A051;">New Paper Submission Received</h2>
+            <div style="background-color: #f5f5f5; padding: 15px; margin: 20px 0;">
+              <p><strong>Submission ID:</strong> ${submissionId}</p>
+              <p><strong>Author:</strong> ${req.body.authorName}</p>
+              <p><strong>Email:</strong> ${req.body.email}</p>
+              <p><strong>Paper Title:</strong> ${req.body.paperTitle}</p>
+              <p><strong>Category:</strong> ${req.body.category}</p>
+              ${req.body.topic ? `<p><strong>Topic:</strong> ${req.body.topic}</p>` : ''}
+              <p><strong>Status:</strong> Under Review</p>
+            </div>
+          </div>
+        `
+      };
+
+      // Add attachment if file was uploaded
+      if (req.file) {
+        const attachmentData = {
+          filename: fileName,
+          content: Buffer.from(fileData, 'base64'),
+          encoding: 'base64'
+        };
+        
+        adminMailOptions.attachments = [attachmentData];
+        authorMailOptions.attachments = [attachmentData];
+      }
+
+      // Send both emails
+      const [authorEmail, adminEmail] = await Promise.all([
+        transporter.sendMail(authorMailOptions),
+        transporter.sendMail(adminMailOptions)
+      ]);
+      
       console.log('Confirmation emails sent successfully');
 
       // Return success response
