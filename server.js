@@ -535,20 +535,7 @@ app.get('/debug/tokens', async (req, res) => {
         });
     }
 });
-// Replace the file storage implementation with memory storage
-
-// Change this:
-// const storage = multer.diskStorage({
-//   destination: function (req, file, cb) {
-//     cb(null, 'uploads/');
-//   },
-//   filename: function (req, file, cb) {
-//     const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1E9);
-//     cb(null, file.fieldname + '-' + uniqueSuffix + path.extname(file.originalname));
-//   }
-// });
-
-// To this:
+// File storage configuration for uploads
 const storage = multer.memoryStorage();
 
 const upload = multer({ 
