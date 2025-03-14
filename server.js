@@ -7,7 +7,7 @@ import nodemailer from "nodemailer";
 import crypto from "crypto";
 import dotenv from 'dotenv';
 import { User } from './models/User.js';
-import { PaperSubmission } from './models/Paper.js';  // Note the correct path and import
+import PaperSubmission from './models/Paper.js';  // Note the correct path and import
 import multer from 'multer';
 import path from 'path';
 import fs from 'fs';
@@ -23,13 +23,13 @@ const secret = process.env.JWT_SECRET;
 
 app.use(cors({ origin: 'https://srm-corrections-hy91.vercel.app' }));
 // Updated CORS configuration to allow the frontend domain
-// const allowedOrigins = [
-//   'http://localhost:5173',
-//   'http://localhost:3000',
-//   'http://localhost:5000',
-//   'https://srm-corrections-hy91.vercel.app',
-//   'https://societycis.org'
-// ];
+const allowedOrigins = [
+  'http://localhost:5173',
+  'http://localhost:3000',
+  'http://localhost:5000',
+  'https://srm-corrections-hy91.vercel.app',
+  'https://societycis.org'
+];
 
 app.use(cors({
   origin: function(origin, callback) {
