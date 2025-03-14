@@ -20,13 +20,15 @@ const PORT = process.env.PORT || 5000;
 const secret = process.env.JWT_SECRET;
 
 // Updated CORS configuration to allow the frontend domain
-const allowedOrigins = [
-  'http://localhost:5173',
-  'http://localhost:3000',
-  'http://localhost:5000',
-  'https://srm-corrections-hy91.vercel.app',
-  'https://societycis.org'
-];
+const allowedOrigins = process.env.ALLOWED_ORIGINS 
+  ? process.env.ALLOWED_ORIGINS.split(',') 
+  : [
+      'http://localhost:5173',
+      'http://localhost:3000',
+      'http://localhost:5000',
+      'https://societycisicmbnt2025.vercel.app',
+      'https://societycis.org'
+    ];
 
 app.use(cors({
   origin: function(origin, callback) {
@@ -67,7 +69,7 @@ const transporter = nodemailer.createTransport({
     }
 });
 
-// Update the sendVerificationEmail function to use the frontend URL from environment or the deployed URL
+// Update the sendVerificationEmail function to use the frontend URL from environment
 const sendVerificationEmail = async (email, token) => {
     console.log(`Sending verification email to ${email} with token: ${token}`);
     
@@ -82,7 +84,7 @@ const sendVerificationEmail = async (email, token) => {
     const encodedData = Buffer.from(JSON.stringify(verificationData)).toString('base64');
     
     // Use frontend URL from environment or default to the deployed URL
-    const frontendUrl = process.env.FRONTEND_URL || 'https://srm-corrections-hy91.vercel.app';
+    const frontendUrl = process.env.FRONTEND_URL || 'https://societycisicmbnt2025.vercel.app';
     const verificationUrl = `${frontendUrl}/verify?data=${encodedData}`;
     console.log("Verification URL created:", verificationUrl);
     
