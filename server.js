@@ -535,33 +535,39 @@ app.get('/debug/tokens', async (req, res) => {
         });
     }
 });
-const storage = multer.diskStorage({
-    destination: function (req, file, cb) {
-      cb(null, 'uploads/');
-    },
-    filename: function (req, file, cb) {
-      const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1E9);
-      cb(null, file.fieldname + '-' + uniqueSuffix + path.extname(file.originalname));
+// Replace the file storage implementation with memory storage
+
+// Change this:
+// const storage = multer.diskStorage({
+//   destination: function (req, file, cb) {
+//     cb(null, 'uploads/');
+//   },
+//   filename: function (req, file, cb) {
+//     const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1E9);
+//     cb(null, file.fieldname + '-' + uniqueSuffix + path.extname(file.originalname));
+//   }
+// });
+
+// To this:
+const storage = multer.memoryStorage();
+
+const upload = multer({ 
+  storage: storage,
+  limits: {
+    fileSize: 3 * 1024 * 1024 // 3MB limit
+  },
+  fileFilter: (req, file, cb) => {
+    const allowedTypes = /doc|docx|pdf/;
+    const extname = allowedTypes.test(path.extname(file.originalname).toLowerCase());
+    if (extname) {
+      return cb(null, true);
     }
-  });
-  
-  const upload = multer({ 
-    storage: storage,
-    limits: {
-      fileSize: 3 * 1024 * 1024 // 3MB limit
-    },
-    fileFilter: (req, file, cb) => {
-      const allowedTypes = /doc|docx|pdf/;
-      const extname = allowedTypes.test(path.extname(file.originalname).toLowerCase());
-      if (extname) {
-        return cb(null, true);
-      }
-      cb(new Error('Only .doc, .docx, and .pdf files are allowed'));
-    }
-  });
-  
-  // Helper function to generate submission ID
-  const generateSubmissionId = async (category) => {
+    cb(new Error('Only .doc, .docx, and .pdf files are allowed'));
+  }
+});
+
+// Helper function to generate submission ID
+const generateSubmissionId = async (category) => {
     const prefix = category.split(' ')[0].substring(0, 2).toUpperCase();
     const count = await PaperSubmission.countDocuments({ category: category });
     return `${prefix}${(count + 1).toString().padStart(3, '0')}`;
@@ -687,14 +693,14 @@ app.post('/submit-paper', upload.single('abstract'), async (req, res) => {
 
     // Get file details for the database and email
     let abstractFileUrl = null;
-    let filePath = null;
     let fileName = null;
+    let fileData = null;
     
     if (req.file) {
-      abstractFileUrl = `/uploads/${req.file.filename}`;
-      filePath = req.file.path; // Full path to the file
-      fileName = req.file.originalname; // Original file name
-      console.log(`File saved at: ${filePath}, original name: ${fileName}`);
+      fileName = req.file.originalname;
+      fileData = req.file.buffer.toString('base64');
+      abstractFileUrl = `data:${req.file.mimetype};base64,${fileData}`;
+      console.log(`File processed: ${fileName}`);
     }
 
     // Create new submission object matching the schema
