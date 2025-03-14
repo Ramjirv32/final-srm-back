@@ -126,6 +126,9 @@ const sendOTPEmail = async (email, otp) => {
     return transporter.sendMail(mailOptions);
 };
 
+app.get("/",(req,res)=>{
+    res.send("In srm backend");
+})
 // JWT verification middleware
 const verifyJWT = (req, res, next) => {
     const token = req.headers["authorization"];
