@@ -80,12 +80,12 @@ const sendVerificationEmail = async (email, token) => {
         timestamp: Date.now()
     };
     
-    // Encode the data as base64
+   
     const encodedData = Buffer.from(JSON.stringify(verificationData)).toString('base64');
     
     // Use frontend URL from environment or default to the deployed URL
     const frontendUrl = process.env.FRONTEND_URL || 'https://societycisicmbnt2025.vercel.app';
-    const verificationUrl = `http://localhost:5173/verify?data=${encodedData}`;
+    const verificationUrl = `https://societycisicmbnt2025.vercel.app/verify?data=${encodedData}`;
     console.log("Verification URL created:", verificationUrl);
     
     const mailOptions = {
