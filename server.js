@@ -85,7 +85,7 @@ const sendVerificationEmail = async (email, token) => {
     
     // Use frontend URL from environment or default to the deployed URL
     const frontendUrl = process.env.FRONTEND_URL || 'https://societycisicmbnt2025.vercel.app';
-    const verificationUrl = `${frontendUrl}/verify/${encodedData}`;
+    const verificationUrl = `http://localhost:5173/verify/${encodedData}`;
     console.log("Verification URL created:", verificationUrl);
     
     const mailOptions = {
