@@ -19,34 +19,23 @@ const app = express();
 const PORT = process.env.PORT || 5000;
 const secret = process.env.JWT_SECRET;
 
-// Updated CORS configuration to allow the frontend domain
-const allowedOrigins = process.env.ALLOWED_ORIGINS 
-  ? process.env.ALLOWED_ORIGINS.split(',') 
-  : [
-      'http://localhost:5173',
-      'http://localhost:3000',
-      'http://localhost:5000',
-      'https://societycisicmbnt2025.vercel.app',
-      'https://societycis.org'
-    ];
-
+// Apply CORS with a more permissive configuration
 app.use(cors({
-  origin: function(origin, callback) {
-    if (!origin || allowedOrigins.indexOf(origin) !== -1) {
-      return callback(null, true);
-    }
-    console.log("Blocked CORS request from:", origin);
-    const msg = 'The CORS policy for this site does not allow access from the specified Origin.';
-    return callback(new Error(msg), false);
-  },
+  origin: '*',  // Allow all origins
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
-  allowedHeaders: ['Content-Type', 'Authorization'],
+  allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With', 'Accept'],
   credentials: true
 }));
 
 app.use(express.json());
 
+// Keep this line
 app.options('*', cors());
+
+// Add specific OPTIONS handlers for problematic routes
+app.options('/signin', cors());
+app.options('/login', cors());
+app.options('/submit-paper', cors());
 
 mongoose.connect(process.env.MONGODB_URI)
     .then(() => {
@@ -73,7 +62,7 @@ const transporter = nodemailer.createTransport({
 const sendVerificationEmail = async (email, token) => {
     console.log(`Sending verification email to ${email} with token: ${token}`);
     
-    // Create verification data
+    
     const verificationData = {
         token: token,
         email: email,
