@@ -19,7 +19,7 @@ const app = express();
 const PORT = process.env.PORT || 5000;
 const secret = process.env.JWT_SECRET;
 
-// Apply CORS with a more permissive configuration
+
 app.use(cors({
   origin: '*',  // Allow all origins
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
@@ -29,10 +29,9 @@ app.use(cors({
 
 app.use(express.json());
 
-// Keep this line
 app.options('*', cors());
 
-// Add specific OPTIONS handlers for problematic routes
+
 app.options('/signin', cors());
 app.options('/login', cors());
 app.options('/submit-paper', cors());
@@ -544,12 +543,57 @@ const upload = multer({
   }
 });
 
-// Helper function to generate submission ID
+// Improved helper function to generate submission ID
 const generateSubmissionId = async (category) => {
     const prefix = category.split(' ')[0].substring(0, 2).toUpperCase();
-    const count = await PaperSubmission.countDocuments({ category: category });
-    return `${prefix}${(count + 1).toString().padStart(3, '0')}`;
-  };
+    
+    // Find the highest existing ID for this category
+    const highestSubmission = await PaperSubmission.findOne(
+      { submissionId: new RegExp(`^${prefix}\\d{3}$`) },
+      { submissionId: 1 }
+    ).sort({ submissionId: -1 });
+    
+    let nextNum = 1;
+    
+    if (highestSubmission) {
+      // Extract the number from the highest ID
+      const highestNum = parseInt(highestSubmission.submissionId.substring(2));
+      nextNum = highestNum + 1;
+    }
+    
+    // Format with leading zeros
+    const paddedNum = nextNum.toString().padStart(3, '0');
+    const newId = `${prefix}${paddedNum}`;
+    
+    // Check if this ID already exists
+    const existingSubmission = await PaperSubmission.findOne({ submissionId: newId });
+    
+    if (existingSubmission) {
+      console.log(`ID ${newId} already exists, incrementing number...`);
+      // Try next number in sequence
+      return generateSubmissionIdWithNum(category, nextNum + 1);
+    }
+    
+    return newId;
+};
+
+// Helper function to generate ID with a specific number
+const generateSubmissionIdWithNum = async (category, num) => {
+    const prefix = category.split(' ')[0].substring(0, 2).toUpperCase();
+    const paddedNum = num.toString().padStart(3, '0');
+    const newId = `${prefix}${paddedNum}`;
+    
+    // Check if this ID already exists
+    const existingSubmission = await PaperSubmission.findOne({ submissionId: newId });
+    
+    if (existingSubmission) {
+      console.log(`ID ${newId} already exists, incrementing number...`);
+      // Try next number in sequence
+      return generateSubmissionIdWithNum(category, num + 1);
+    }
+    
+    return newId;
+};
   
   // Email sending function to be used by the paper submission route
 const sendPaperSubmissionEmails = async (submissionData) => {
