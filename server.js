@@ -13,11 +13,18 @@ import path from 'path';
 import fs from 'fs';
 import { UserSubmission } from './models/UserSubmission.js';
 
+
+// import express from 'express';
+// import multer from 'multer';
+import CloudConvert from 'cloudconvert';
+// import fs from 'fs';
+// import dotenv from 'dotenv';
 dotenv.config();
 
 const app = express();
 const PORT = process.env.PORT || 5000;
 const secret = process.env.JWT_SECRET;
+const cloudConvert = new CloudConvert(process.env.CLOUDCONVERT_API_KEY);
 
 
 app.use(cors({
@@ -526,20 +533,20 @@ app.get('/debug/tokens', async (req, res) => {
     }
 });
 // File storage configuration for uploads
+
 const storage = multer.memoryStorage();
 
 const upload = multer({ 
-  storage: storage,
-  limits: {
-    fileSize: 3 * 1024 * 1024 // 3MB limit
-  },
+  storage,
+  limits: { fileSize: 3 * 1024 * 1024 },
   fileFilter: (req, file, cb) => {
-    const allowedTypes = /doc|docx|pdf/;
-    const extname = allowedTypes.test(path.extname(file.originalname).toLowerCase());
-    if (extname) {
-      return cb(null, true);
+    const allowedExtensions = ['.doc', '.docx', '.pdf', '.png', '.jpg', '.jpeg', '.txt', '.xlsx'];
+    const ext = path.extname(file.originalname).toLowerCase();
+    if (allowedExtensions.includes(ext)) {
+      cb(null, true);
+    } else {
+      cb(new Error('Only .doc, .docx, .pdf, .png, .jpg, .jpeg, .txt, and .xlsx files are allowed'));
     }
-    cb(new Error('Only .doc, .docx, and .pdf files are allowed'));
   }
 });
 
@@ -1069,7 +1076,79 @@ const generateBookingId = () => {
   return `BK${timestamp}${randomNum}`;
 };
 
+
+
+
+
+
+
+// const cloudConvert = new CloudConvert(process.env.CLOUDCONVERT_API_KEY);
+
+app.post('/convert', upload.single('file'), async (req, res) => {
+  try {
+    if (!req.file) {
+      return res.status(400).json({ error: 'No file uploaded' });
+    }
+
+    // Since multer.memoryStorage() is used, file is in memory buffer, no path
+    // So we need to use the buffer instead of fs.createReadStream(path)
+    // For that, we will upload directly using the buffer:
+    
+    // Accept output format dynamically
+    const outputFormat = req.body.outputFormat || req.query.outputFormat || 'pdf';
+    const inputFormat = req.body.inputFormat || req.query.inputFormat || undefined;
+
+    const tasks = {
+      importFile: {
+        operation: 'import/upload',
+      },
+      convertFile: {
+        operation: 'convert',
+        input: 'importFile',
+        output_format: outputFormat,
+      },
+      exportFile: {
+        operation: 'export/url',
+        input: 'convertFile',
+      },
+    };
+
+    if (inputFormat) {
+      tasks.convertFile.input_format = inputFormat;
+    }
+
+    const job = await cloudConvert.jobs.create({ tasks });
+
+    const uploadTask = job.tasks.find(task => task.name === 'importFile');
+
+    // Upload using buffer directly
+    await cloudConvert.tasks.upload(uploadTask, req.file.buffer, req.file.originalname);
+
+    const completedJob = await cloudConvert.jobs.wait(job.id);
+    console.log('Completed job:', JSON.stringify(completedJob, null, 2));
+    console.log('Job status:', completedJob.status);
+
+    if (completedJob.status !== 'finished') {
+      return res.status(500).json({ error: `Job did not finish successfully. Status: ${completedJob.status}` });
+    }
+
+    const exportTask = completedJob.tasks.find(task => task.name === 'exportFile');
+    if (!exportTask || !exportTask.result || !exportTask.result.files || exportTask.result.files.length === 0) {
+      return res.status(500).json({ error: 'No exported files found' });
+    }
+
+    const file = exportTask.result.files[0];
+    res.json({ downloadUrl: file.url });
+
+  } catch (error) {
+    console.error(error);
+    res.status(500).send('Conversion failed');
+  }
+});
+
+
+
 app.listen(PORT, '0.0.0.0', () => {
     console.log(`Server is running on http://localhost:${PORT}`);
-    console.log('Allowed origins for CORS:', allowedOrigins);
+    // console.log('Allowed origins for CORS:', allowedOrigins);
 });
